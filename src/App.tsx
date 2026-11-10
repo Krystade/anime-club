@@ -74,7 +74,13 @@ function useToast() {
   return { msg, show };
 }
 
-type SheetState = { kind: 'add'; target: 'queue' | 'rec' } | { kind: 'show'; id: string } | { kind: 'name' } | { kind: 'settings' } | null;
+type AddTarget = 'queue' | 'rec' | 'sampled';
+const ADD_DONE: Record<AddTarget, string> = { queue: 'Added to the queue', rec: 'Added to your recommendations', sampled: 'Added to Sampled' };
+/** Can a show already on the board be moved into this list from the add sheet? */
+function canPromote(st: Status, target: AddTarget) {
+  return (target === 'sampled' && (st === 'rec' || st === 'queue')) || (target === 'queue' && st === 'rec');
+}
+type SheetState = { kind: 'add'; target: AddTarget } | { kind: 'show'; id: string } | { kind: 'name' } | { kind: 'settings' } | null;
 
 function ClubView({ clubKey }: { clubKey: string }) {
   const [club, setClub] = useState<Club | null | 'missing'>(null);
@@ -128,19 +134,20 @@ function ClubView({ clubKey }: { clubKey: string }) {
   const session = nextSession(new Date(), club.meetDay, club.meetTime);
   const open = (s: Show) => setSheet({ kind: 'show', id: s.id });
 
-  const addShow = async (l: Lookup, target: 'queue' | 'rec') => {
+  const addShow = async (l: Lookup, target: AddTarget) => {
     const existing = l.malId != null ? shows.find((s) => s.malId === l.malId) : undefined;
     setSheet(null);
     if (existing) {
-      if (target === 'rec' && !existing.recBy.includes(name)) await save(updateDoc(ref(existing.id), { recBy: arrayUnion(name) }), `Added to your recommendations`);
+      if (canPromote(existing.status, target)) await a.move(existing, target, ADD_DONE[target]);
+      else if (target === 'rec' && !existing.recBy.includes(name)) await save(updateDoc(ref(existing.id), { recBy: arrayUnion(name) }), ADD_DONE.rec);
       else toast.show(`${existing.title} is already on the board`);
       return;
     }
     const data: ShowData = {
       malId: l.malId, title: l.title.slice(0, 200), image: l.image, eps: l.eps, score: l.score, year: l.year, type: l.type,
-      status: target, ep: 0, by: name, recBy: target === 'rec' ? [name] : [], votes: [], scores: {}, log: [], addedAt: Date.now(), statusAt: Date.now(),
+      status: target, ep: target === 'sampled' ? 1 : 0, by: name, recBy: target === 'rec' ? [name] : [], votes: [], scores: {}, log: [], addedAt: Date.now(), statusAt: Date.now(),
     };
-    await save(addDoc(showsRef, data), target === 'rec' ? `Added to your recommendations` : `Added ${l.title} to the queue`);
+    await save(addDoc(showsRef, data), ADD_DONE[target]);
   };
   const current = sheet?.kind === 'show' ? shows.find((s) => s.id === sheet.id) : undefined;
 
@@ -168,7 +175,7 @@ function ClubView({ clubKey }: { clubKey: string }) {
           : <div className="on empty-on"><span className="muted">Nothing on. Add a show to the queue.</span></div>)}
       </section>
 
-      <Section title="Sampled" note="Tried an episode, not decided yet. Vote to keep watching.">
+      <Section title="Sampled" action={<button className="link" onClick={() => setSheet({ kind: 'add', target: 'sampled' })}>Add</button>} note="Tried an episode, not decided yet. Vote to keep watching.">
         {sampled.length ? <VoteGrid shows={sampled} members={club.members} me={name} a={a} onOpen={open} /> : <Empty>Nothing sampled. Try an episode of something from the queue.</Empty>}
       </Section>
       {sampled.length > 0 && sampled[0].votes.length > 0 && (
@@ -428,7 +435,7 @@ function ShowSheet({ s, me, members, a, onClose }: { s: Show; me: string; member
 }
 
 // ---------- add ----------
-function AddSheet({ target, shows, onAdd, onClose }: { target: 'queue' | 'rec'; shows: Show[]; onAdd: (l: Lookup, t: 'queue' | 'rec') => void; onClose: () => void }) {
+function AddSheet({ target, shows, onAdd, onClose }: { target: AddTarget; shows: Show[]; onAdd: (l: Lookup, t: AddTarget) => void; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [state, setState] = useState<{ status: 'idle' | 'loading' | 'done' | 'error'; results: Lookup[] }>({ status: 'idle', results: [] });
   const input = useRef<HTMLInputElement>(null);
@@ -448,7 +455,7 @@ function AddSheet({ target, shows, onAdd, onClose }: { target: 'queue' | 'rec'; 
   const have = new Map(shows.filter((s) => s.malId != null).map((s) => [s.malId, s.status]));
   const term = q.trim();
   return (
-    <Sheet title={target === 'rec' ? 'Recommend a show' : 'Add to queue'} onClose={onClose}
+    <Sheet title={{ rec: 'Recommend a show', queue: 'Add to queue', sampled: 'Add to Sampled' }[target]} onClose={onClose}
       head={<input ref={input} id="search" className="field" type="search" placeholder="Search MyAnimeList" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} />}>
       <div className="grp">
         {state.status === 'idle' && <Empty>Type a title.</Empty>}
@@ -461,7 +468,7 @@ function AddSheet({ target, shows, onAdd, onClose }: { target: 'queue' | 'rec'; 
             <div className="row static" key={r.malId ?? r.title}>
               <Thumb s={r} size="sm" />
               <span className="row-m"><span className="t">{r.title}</span><span className="s">{[r.altTitle, r.type, r.eps != null ? `${r.eps} eps` : null, r.year].filter(Boolean).join(' · ')}</span></span>
-              {st && !(target === 'rec' && st === 'rec') ? <span className="r muted">{STATUS_TAG[st] || 'recommended'}</span> : <button className="btn" onClick={() => onAdd(r, target)}>Add</button>}
+              {st && !(target === 'rec' && st === 'rec') && !canPromote(st, target) ? <span className="r muted">{STATUS_TAG[st] || 'recommended'}</span> : <button className="btn" onClick={() => onAdd(r, target)}>Add</button>}
             </div>
           );
         })}
