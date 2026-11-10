@@ -245,3 +245,16 @@ table.vote { width: 100%; border-collapse: collapse; font-variant-numeric: tabul
 .now-h { padding: 2px 14px 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
 .not-watching { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 14px 14px; padding: 12px 14px; border: 1.5px dashed var(--line); border-radius: 12px; font-size: 15px; }
 .not-watching .link { font-size: 15px; font-weight: 600; text-align: left; }
+/* Sampled: a normal row plus a line of hearts */
+.sampled + .sampled { border-top: 1px solid var(--line); }
+.sampled-top { padding-bottom: 2px; }
+.hearts { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 2px 14px 10px 62px; }
+.heart { display: inline-flex; align-items: center; gap: 3px; padding: 4px 8px 4px 6px; min-width: 44px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--muted); min-height: 30px; }
+.heart svg { width: 15px; height: 14px; }
+.heart.mine { background: var(--cell); color: var(--ink); }
+.heart.mine:active { transform: scale(0.94); }
+.heart.y { color: var(--ink); }
+.heart:disabled { cursor: default; }
+.tally { margin-left: auto; font-family: var(--round); font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
+.tally small { font-family: var(--font); font-weight: 500; font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .heart.mine:active { transform: none; } }

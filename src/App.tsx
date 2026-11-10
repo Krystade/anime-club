@@ -296,23 +296,30 @@ function OnRow({ s, a, onOpen }: { s: Show; a: Actions; onOpen: () => void }) {
 function VoteGrid({ shows, members, me, a, onOpen }: { shows: Show[]; members: string[]; me: string; a: Actions; onOpen: (s: Show) => void }) {
   const colorOf = useColor();
   return (
-    <div className="vote-wrap">
-      <table className="vote">
-        <thead><tr><th scope="col">Show</th>{members.map((m) => <th key={m} scope="col" className={m === me ? 'me' : ''} title={m}><Av name={m} size={24} /><span className="sr">{m}</span></th>)}<th scope="col">Total</th></tr></thead>
-        <tbody>
-          {shows.map((s) => (
-            <tr key={s.id}>
-              <td><button className="cell-t" onClick={() => onOpen(s)}>{s.title}</button></td>
-              {members.map((m) => {
-                const y = s.votes.includes(m);
-                return <td key={m}><button className={`pip ${y ? 'y' : ''}`} disabled={m !== me} onClick={() => a.vote(s)} aria-label={`${m}: ${y ? 'yes' : 'no vote'}`} aria-pressed={y}><Heart filled={y} color={colorOf(m)} /></button></td>;
-              })}
-              <td className="tot">{s.votes.length}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {shows.map((s) => (
+        <div key={s.id} className="sampled">
+          <button className="row sampled-top" onClick={() => onOpen(s)}>
+            <Thumb s={s} size="sm" />
+            <span className="row-m"><span className="t">{s.title}</span><span className="s">{[s.type, s.eps != null ? `${s.eps} eps` : null, s.year].filter(Boolean).join(' · ')}{s.ep > 0 ? ` · saw ep ${s.ep}` : ''}</span></span>
+            <span className="r" />
+            {Ico.chev}
+          </button>
+          <div className="hearts">
+            {members.map((m) => {
+              const y = s.votes.includes(m);
+              return (
+                <button key={m} className={`heart ${y ? 'y' : ''} ${m === me ? 'mine' : ''}`} disabled={m !== me} onClick={() => a.vote(s)}
+                  aria-label={`${m}: ${y ? 'wants to keep watching' : 'no vote'}`} aria-pressed={y}>
+                  <Heart filled={y} color={colorOf(m)} /><span>{[...m][0]}</span>
+                </button>
+              );
+            })}
+            <span className="tally">{s.votes.length}<small>{s.votes.length === 1 ? ' vote' : ' votes'}</small></span>
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 
