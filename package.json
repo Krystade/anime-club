@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/fetch-mal.mjs && tsc --noEmit && vite build",
+    "build:offline": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore --project demo-anime-club \"vitest run --config vitest.rules.config.ts\""

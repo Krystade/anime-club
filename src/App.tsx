@@ -24,6 +24,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { searchAnime } from './anilist';
+import { MalBrowser, useMalSnapshot } from './MalBrowser';
+import malUsers from './mal-users.json';
 import {
   DAYS, bump, clubAverage, formatDay, formatLog, formatTime, localISODate,
   malUrl, nextSession,
@@ -80,7 +82,7 @@ const ADD_DONE: Record<AddTarget, string> = { queue: 'Added to the queue', rec: 
 function canPromote(st: Status, target: AddTarget) {
   return (target === 'sampled' && (st === 'rec' || st === 'queue')) || (target === 'queue' && st === 'rec');
 }
-type SheetState = { kind: 'add'; target: AddTarget } | { kind: 'show'; id: string } | { kind: 'name' } | { kind: 'settings' } | null;
+type SheetState = { kind: 'add'; target: AddTarget } | { kind: 'show'; id: string } | { kind: 'name' } | { kind: 'settings' } | { kind: 'mal'; member: string } | null;
 
 function ClubView({ clubKey }: { clubKey: string }) {
   const [club, setClub] = useState<Club | null | 'missing'>(null);
@@ -134,9 +136,9 @@ function ClubView({ clubKey }: { clubKey: string }) {
   const session = nextSession(new Date(), club.meetDay, club.meetTime);
   const open = (s: Show) => setSheet({ kind: 'show', id: s.id });
 
-  const addShow = async (l: Lookup, target: AddTarget) => {
+  const addShow = async (l: Lookup, target: AddTarget, keepOpen = false) => {
     const existing = l.malId != null ? shows.find((s) => s.malId === l.malId) : undefined;
-    setSheet(null);
+    if (!keepOpen) setSheet(null);
     if (existing) {
       if (canPromote(existing.status, target)) await a.move(existing, target, ADD_DONE[target]);
       else if (target === 'rec' && !existing.recBy.includes(name)) await save(updateDoc(ref(existing.id), { recBy: arrayUnion(name) }), ADD_DONE.rec);
@@ -206,8 +208,16 @@ function ClubView({ clubKey }: { clubKey: string }) {
         <Recs shows={shows} members={club.members} me={name} onOpen={open} />
       </Section>
 
+      <Section title="MyAnimeList" note="Browse members' lists to find the club's next show.">
+        {Object.entries(malUsers as Record<string, string>).map(([member, user]) => (
+          <MalListRow key={member} member={member} user={user} onOpen={() => setSheet({ kind: 'mal', member })} />
+        ))}
+      </Section>
+
       <p className="foot-note">Show data from MyAnimeList</p>
 
+      {sheet?.kind === 'mal' && <MalSheet member={sheet.member} user={(malUsers as Record<string, string>)[sheet.member]} shows={shows}
+        onAdd={(l, t) => addShow(l, t, true)} onOpenShow={open} onClose={() => setSheet(null)} />}
       {sheet?.kind === 'add' && <AddSheet target={sheet.target} shows={shows} onAdd={addShow} onClose={() => setSheet(null)} />}
       {current && <ShowSheet s={current} me={name} members={club.members} a={a} onClose={() => setSheet(null)} />}
       {sheet?.kind === 'name' && <NameSheet club={club} me={me} mustPick={needsName}
@@ -555,6 +565,31 @@ function SettingsSheet({ club, clubKey, onSave, onClose, toast }: {
         </div>
         <p className="note">Anyone with this link can see and edit the club. Keep it in the group chat.</p>
       </div>
+    </Sheet>
+  );
+}
+
+function MalListRow({ member, user, onOpen }: { member: string; user: string; onOpen: () => void }) {
+  const snap = useMalSnapshot(user);
+  const n = (st: string) => (snap && snap !== 'error' ? snap.entries.filter((e) => e.status === st).length : null);
+  return (
+    <button className="row pick mal-row" onClick={onOpen}>
+      <span className="row-m name-m"><Av name={member} size={30} /><span className="row-m"><span className="t">{member}'s list</span>
+        <span className="s">{snap === 'error' ? "Couldn't load the list" : snap ? `${n('plan')} plan to watch · ${n('completed')} completed` : 'Loading…'}</span></span></span>
+      {Ico.chev}
+    </button>
+  );
+}
+
+function MalSheet({ member, user, shows, onAdd, onOpenShow, onClose }: {
+  member: string; user: string; shows: Show[]; onAdd: (l: Lookup, t: AddTarget) => void; onOpenShow: (s: Show) => void; onClose: () => void;
+}) {
+  const snap = useMalSnapshot(user);
+  return (
+    <Sheet title={`${member}'s MyAnimeList`} onClose={onClose}>
+      {snap === null && <div className="empty">Loading…</div>}
+      {snap === 'error' && <div className="empty">Couldn't load the list. Try again in a bit.</div>}
+      {snap && snap !== 'error' && <MalBrowser snap={snap} shows={shows} onAdd={onAdd} onOpenShow={onOpenShow} Thumb={Thumb} />}
     </Sheet>
   );
 }

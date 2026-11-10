@@ -258,3 +258,22 @@ table.vote { width: 100%; border-collapse: collapse; font-variant-numeric: tabul
 .tally { margin-left: auto; font-family: var(--round); font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
 .tally small { font-family: var(--font); font-weight: 500; font-size: 12px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .heart.mine:active { transform: none; } }
+/* MyAnimeList browser */
+.mal-row { grid-template-columns: 1fr 8px; }
+.mal { display: flex; flex-direction: column; gap: 10px; }
+.seg { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.seg::-webkit-scrollbar { display: none; }
+.seg button { flex: none; padding: 7px 12px; border-radius: 999px; background: var(--group); font-size: 14px; font-weight: 600; color: var(--muted); min-height: 36px; }
+.seg button .num { font-weight: 500; opacity: 0.8; }
+.seg button[aria-selected="true"] { background: var(--accent); color: #fff; }
+.mal-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+.mal-opts select { font: inherit; font-size: 16px; border: 0; background: var(--group); color: var(--ink); border-radius: 8px; padding: 6px 8px; min-height: 36px; }
+.check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.mal-item + .mal-item { border-top: 1px solid var(--line); }
+.mal-item .row.static::before { display: none; }
+.mine-score { color: var(--accent); font-weight: 700; }
+.tagbtn { font-size: 12px; color: var(--done); background: var(--cell); border-radius: 999px; padding: 4px 9px; white-space: nowrap; }
+.add-to { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 14px 12px 62px; }
+.add-to .muted { font-size: 13px; }
+.link.small { font-size: 14px; margin-left: auto; }
