@@ -20,12 +20,11 @@ function EpDots({ ep, eps }: { ep: number; eps: number }) {
 }
 import {
   addDoc, arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, FieldPath,
-  onSnapshot, updateDoc,
+  onSnapshot, updateDoc, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { searchAnime } from './anilist';
-import { MalBrowser, useMalSnapshot } from './MalBrowser';
-import malUsers from './mal-users.json';
+import { MalBrowser, useMalSnapshot, MAL_DAILY_LIMIT, todayNumber } from './MalBrowser';
 import {
   DAYS, bump, clubAverage, formatDay, formatLog, formatTime, localISODate,
   malUrl, nextSession,
@@ -82,7 +81,7 @@ const ADD_DONE: Record<AddTarget, string> = { queue: 'Added to the queue', rec: 
 function canPromote(st: Status, target: AddTarget) {
   return (target === 'sampled' && (st === 'rec' || st === 'queue')) || (target === 'queue' && st === 'rec');
 }
-type SheetState = { kind: 'add'; target: AddTarget } | { kind: 'show'; id: string } | { kind: 'name' } | { kind: 'settings' } | { kind: 'mal'; member: string } | null;
+type SheetState = { kind: 'add'; target: AddTarget } | { kind: 'show'; id: string } | { kind: 'name' } | { kind: 'settings' } | { kind: 'mal'; user: string } | { kind: 'addList' } | null;
 
 function ClubView({ clubKey }: { clubKey: string }) {
   const [club, setClub] = useState<Club | null | 'missing'>(null);
@@ -96,6 +95,11 @@ function ClubView({ clubKey }: { clubKey: string }) {
   const showsRef = useMemo(() => collection(db, 'clubs', clubKey, 'shows'), [clubKey]);
   useEffect(() => onSnapshot(clubRef, (s) => setClub(s.exists() ? (s.data() as Club) : 'missing'), (e) => setError(e.message)), [clubRef]);
   useEffect(() => onSnapshot(showsRef, (s) => setShows(s.docs.map((d) => ({ id: d.id, ...(d.data() as ShowData) }))), (e) => setError(e.message)), [showsRef]);
+
+  const [malLists, setMalLists] = useState<string[]>([]);
+  const [quota, setQuota] = useState<{ day: number; count: number }>({ day: 0, count: 0 });
+  useEffect(() => onSnapshot(collection(db, 'clubs', clubKey, 'malLists'), (s) => setMalLists(s.docs.map((d) => d.id).sort((x, y) => x.localeCompare(y))), () => {}), [clubKey]);
+  useEffect(() => onSnapshot(doc(db, 'clubs', clubKey, 'meta', 'malQuota'), (s) => setQuota(s.exists() ? (s.data() as { day: number; count: number }) : { day: 0, count: 0 }), () => {}), [clubKey]);
 
   const needsName = !!club && club !== 'missing' && (!me || !club.members.includes(me));
   useEffect(() => { if (needsName) setSheet({ kind: 'name' }); }, [needsName]);
@@ -208,16 +212,27 @@ function ClubView({ clubKey }: { clubKey: string }) {
         <Recs shows={shows} members={club.members} me={name} onOpen={open} />
       </Section>
 
-      <Section title="MyAnimeList" note="Browse members' lists to find the club's next show.">
-        {Object.entries(malUsers as Record<string, string>).map(([member, user]) => (
-          <MalListRow key={member} member={member} user={user} onOpen={() => setSheet({ kind: 'mal', member })} />
-        ))}
+      <Section title="MyAnimeList" action={<button className="link" onClick={() => setSheet({ kind: 'addList' })}>Add</button>}
+        note="Browse anyone's public MyAnimeList to find the club's next show.">
+        {malLists.map((user) => <MalListRow key={user} user={user} onOpen={() => setSheet({ kind: 'mal', user })} />)}
+        {!malLists.length && <Empty>No lists yet. Add one by MyAnimeList username.</Empty>}
       </Section>
 
       <p className="foot-note">Show data from MyAnimeList</p>
 
-      {sheet?.kind === 'mal' && <MalSheet member={sheet.member} user={(malUsers as Record<string, string>)[sheet.member]} shows={shows}
-        onAdd={(l, t) => addShow(l, t, true)} onOpenShow={open} onClose={() => setSheet(null)} />}
+      {sheet?.kind === 'mal' && <MalSheet user={sheet.user} shows={shows}
+        onAdd={(l, t) => addShow(l, t, true)} onOpenShow={open} onClose={() => setSheet(null)}
+        onRemove={() => { const u = sheet.user; setSheet(null); save(deleteDoc(doc(db, 'clubs', clubKey, 'malLists', u)), `Removed ${u}'s list`); }} />}
+      {sheet?.kind === 'addList' && <AddListSheet existing={malLists} quota={quota} onClose={() => setSheet(null)}
+        onAdd={async (user) => {
+          const used = quota.day === todayNumber() ? quota.count : 0;
+          const b = writeBatch(db);
+          b.set(doc(db, 'clubs', clubKey, 'malLists', user), { addedAt: Date.now(), day: todayNumber() });
+          b.set(doc(db, 'clubs', clubKey, 'meta', 'malQuota'), { day: todayNumber(), count: used + 1, last: user });
+          await b.commit();
+          setSheet(null);
+          toast.show(`Added ${user}. The list shows up within about 15 minutes.`);
+        }} />}
       {sheet?.kind === 'add' && <AddSheet target={sheet.target} shows={shows} onAdd={addShow} onClose={() => setSheet(null)} />}
       {current && <ShowSheet s={current} me={name} members={club.members} a={a} onClose={() => setSheet(null)} />}
       {sheet?.kind === 'name' && <NameSheet club={club} me={me} mustPick={needsName}
@@ -569,27 +584,67 @@ function SettingsSheet({ club, clubKey, onSave, onClose, toast }: {
   );
 }
 
-function MalListRow({ member, user, onOpen }: { member: string; user: string; onOpen: () => void }) {
+function MalListRow({ user, onOpen }: { user: string; onOpen: () => void }) {
   const snap = useMalSnapshot(user);
-  const n = (st: string) => (snap && snap !== 'error' ? snap.entries.filter((e) => e.status === st).length : null);
+  const n = (st: string) => (typeof snap === 'object' && snap?.entries ? snap.entries.filter((e) => e.status === st).length : 0);
+  const sub = snap === 'pending' ? 'Fetching… usually within 15 minutes'
+    : snap === 'error' ? "Couldn't load right now"
+    : snap === null ? 'Loading…'
+    : snap.error === 'notfound' ? 'No MyAnimeList user by that name'
+    : snap.error === 'private' ? 'This list is private on MyAnimeList'
+    : `${n('plan')} plan to watch · ${n('completed')} completed`;
   return (
     <button className="row pick mal-row" onClick={onOpen}>
-      <span className="row-m name-m"><Av name={member} size={30} /><span className="row-m"><span className="t">{member}'s list</span>
-        <span className="s">{snap === 'error' ? "Couldn't load the list" : snap ? `${n('plan')} plan to watch · ${n('completed')} completed` : 'Loading…'}</span></span></span>
+      <span className="row-m"><span className="t">{user}</span><span className="s">{sub}</span></span>
       {Ico.chev}
     </button>
   );
 }
 
-function MalSheet({ member, user, shows, onAdd, onOpenShow, onClose }: {
-  member: string; user: string; shows: Show[]; onAdd: (l: Lookup, t: AddTarget) => void; onOpenShow: (s: Show) => void; onClose: () => void;
+function MalSheet({ user, shows, onAdd, onOpenShow, onClose, onRemove }: {
+  user: string; shows: Show[]; onAdd: (l: Lookup, t: AddTarget) => void; onOpenShow: (s: Show) => void; onClose: () => void; onRemove: () => void;
 }) {
   const snap = useMalSnapshot(user);
   return (
-    <Sheet title={`${member}'s MyAnimeList`} onClose={onClose}>
+    <Sheet title={user} onClose={onClose}>
       {snap === null && <div className="empty">Loading…</div>}
+      {snap === 'pending' && <div className="empty">Fetching this list from MyAnimeList. It usually shows up within 15 minutes.</div>}
       {snap === 'error' && <div className="empty">Couldn't load the list. Try again in a bit.</div>}
-      {snap && snap !== 'error' && <MalBrowser snap={snap} shows={shows} onAdd={onAdd} onOpenShow={onOpenShow} Thumb={Thumb} />}
+      {typeof snap === 'object' && snap?.error && <div className="empty">{snap.error === 'private' ? "This list is private on MyAnimeList, so it can't be shown." : "There's no MyAnimeList user by that name."}</div>}
+      {typeof snap === 'object' && snap?.entries && <MalBrowser snap={{ ...snap, entries: snap.entries }} shows={shows} onAdd={onAdd} onOpenShow={onOpenShow} Thumb={Thumb} />}
+      <div className="grp actions" style={{ marginTop: 16 }}>
+        <ConfirmButton label="Remove this list from the club" confirm="Tap again to remove" onConfirm={onRemove} />
+      </div>
+    </Sheet>
+  );
+}
+
+function AddListSheet({ existing, quota, onAdd, onClose }: {
+  existing: string[]; quota: { day: number; count: number }; onAdd: (user: string) => Promise<void>; onClose: () => void;
+}) {
+  const [u, setU] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const used = quota.day === todayNumber() ? quota.count : 0;
+  const left = Math.max(0, MAL_DAILY_LIMIT - used);
+  const clean = u.trim();
+  const valid = /^[A-Za-z0-9_-]{2,16}$/.test(clean);
+  const dup = existing.some((e) => e.toLowerCase() === clean.toLowerCase());
+  return (
+    <Sheet title="Add a MyAnimeList" onClose={onClose}>
+      {left === 0
+        ? <div className="limit-alert" role="alert"><b>Daily limit reached.</b> {MAL_DAILY_LIMIT} lists were added today, so adding is paused until tomorrow. The club owner has been alerted.</div>
+        : <form className="add-name" onSubmit={async (e) => {
+            e.preventDefault();
+            if (!valid || dup || busy) return;
+            setBusy(true); setErr(null);
+            try { await onAdd(clean); } catch { setErr("Couldn't add it. The daily limit may have just been reached."); setBusy(false); }
+          }}>
+            <label htmlFor="mal-user" className="sr">MyAnimeList username</label>
+            <input id="mal-user" className="field" placeholder="MyAnimeList username" value={u} onChange={(e) => setU(e.target.value)} maxLength={16} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+            <button className="btn primary" disabled={!valid || dup || busy}>Add</button>
+          </form>}
+      <p className="note">{dup ? 'That list is already in the club.' : err ?? `The list must be public on MyAnimeList. ${left} of ${MAL_DAILY_LIMIT} adds left today.`}</p>
     </Sheet>
   );
 }

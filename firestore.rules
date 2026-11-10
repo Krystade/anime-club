@@ -58,6 +58,46 @@ service cloud.firestore {
         allow read, delete: if clubExists(k);
         allow create, update: if clubExists(k) && validShow(request.resource.data);
       }
+
+      // MyAnimeList lists to browse, by MAL username only (never tied to a member).
+      // Adding one must bump the daily quota in the same batch, capped at MAL_DAILY_LIMIT.
+      match /malLists/{user} {
+        allow read, delete: if clubExists(k);
+        allow update: if false;
+        allow create: if clubExists(k)
+          && user.matches('^[A-Za-z0-9_-]{2,16}$')
+          && request.resource.data.keys().hasOnly(['addedAt', 'day'])
+          && request.resource.data.addedAt is number
+          && request.resource.data.day == today()
+          && quotaBumpedFor(k, user);
+      }
+      match /meta/malQuota {
+        allow read: if clubExists(k);
+        allow create, update: if clubExists(k)
+          && request.resource.data.keys().hasOnly(['day', 'count', 'last'])
+          && request.resource.data.day == today()
+          && request.resource.data.count == quotaUsed(k) + 1
+          && request.resource.data.count <= 10
+          && request.resource.data.last is string
+          && !exists(/databases/$(db)/documents/clubs/$(k)/malLists/$(request.resource.data.last))
+          && existsAfter(/databases/$(db)/documents/clubs/$(k)/malLists/$(request.resource.data.last));
+        allow delete: if false;
+      }
+    }
+
+    // Day number in UTC, so the quota resets at midnight UTC (4pm Pacific).
+    function today() {
+      return math.floor(request.time.toMillis() / 86400000);
+    }
+    function quotaPath(k) {
+      return /databases/$(db)/documents/clubs/$(k)/meta/malQuota;
+    }
+    function quotaUsed(k) {
+      return exists(quotaPath(k)) && get(quotaPath(k)).data.day == today() ? get(quotaPath(k)).data.count : 0;
+    }
+    function quotaBumpedFor(k, user) {
+      let q = getAfter(quotaPath(k)).data;
+      return q.day == today() && q.count == quotaUsed(k) + 1 && q.count <= 10 && q.last == user;
     }
   }
 }

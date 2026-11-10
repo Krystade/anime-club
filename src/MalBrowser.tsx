@@ -6,23 +6,26 @@ export interface MalEntry {
   year: number | null; malScore: number | null; myScore: number | null;
   status: 'watching' | 'completed' | 'onhold' | 'dropped' | 'plan' | 'other'; genres: string[]; updated: number;
 }
-export interface MalSnapshot { member: string; user: string; fetchedAt: string; entries: MalEntry[] }
+export interface MalSnapshot { user: string; fetchedAt: string; entries?: MalEntry[]; error?: 'notfound' | 'private' }
+export const MAL_DAILY_LIMIT = 10;
+/** UTC day number; the database's security rules use the same one for the daily limit. */
+export const todayNumber = () => Math.floor(Date.now() / 86_400_000);
 
 const TABS: [MalEntry['status'], string][] = [['plan', 'Plan to watch'], ['completed', 'Completed'], ['watching', 'Watching'], ['onhold', 'On hold'], ['dropped', 'Dropped']];
 type Sort = 'updated' | 'mine' | 'mal' | 'az';
-const SORTS: Record<Sort, string> = { updated: 'Recently updated', mine: 'Their score', mal: 'MAL score', az: 'A to Z' };
+const SORTS: Record<Sort, string> = { updated: 'Recently updated', mine: 'Their rating', mal: 'MAL score', az: 'A to Z' };
 export type AddTarget = 'queue' | 'rec' | 'sampled';
 const CLUB_TAG: Record<Status, string> = { rec: 'recommended', queue: 'in queue', sampled: 'sampled', watching: 'watching', done: 'club watched', drop: 'club dropped' };
 
 export function useMalSnapshot(user: string | null) {
-  const [snap, setSnap] = useState<MalSnapshot | null | 'error'>(null);
+  const [snap, setSnap] = useState<MalSnapshot | null | 'error' | 'pending'>(null);
   useEffect(() => {
     if (!user) return;
     let live = true;
     // Bust the cache hourly so a fresh daily snapshot shows up without a hard refresh.
     fetch(`./mal/${user.toLowerCase()}.json?h=${Math.floor(Date.now() / 3_600_000)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: MalSnapshot) => { if (live) setSnap(d); })
+      .then((r) => (r.ok ? r.json() : r.status === 404 ? 'pending' : Promise.reject(new Error(String(r.status)))))
+      .then((d: MalSnapshot | 'pending') => { if (live) setSnap(d); })
       .catch(() => { if (live) setSnap('error'); });
     return () => { live = false; };
   }, [user]);
@@ -34,7 +37,7 @@ export function toLookup(e: MalEntry): Lookup {
 }
 
 export function MalBrowser({ snap, shows, onAdd, onOpenShow, Thumb }: {
-  snap: MalSnapshot; shows: Show[]; onAdd: (l: Lookup, t: AddTarget) => void; onOpenShow: (s: Show) => void;
+  snap: MalSnapshot & { entries: MalEntry[] }; shows: Show[]; onAdd: (l: Lookup, t: AddTarget) => void; onOpenShow: (s: Show) => void;
   Thumb: (p: { s: { title: string; image: string | null }; size?: 'sm' | 'md' | 'lg' | 'hero' }) => React.ReactElement;
 }) {
   const [tab, setTab] = useState<MalEntry['status']>('plan');
@@ -88,7 +91,7 @@ export function MalBrowser({ snap, shows, onAdd, onOpenShow, Thumb }: {
                 <span className="row-m">
                   <span className="t">{e.title}</span>
                   <span className="s">{[e.type, e.eps != null ? `${e.eps} eps` : null, e.year, e.malScore ? `MAL ${e.malScore.toFixed(2)}` : null].filter(Boolean).join(' · ')}</span>
-                  {(e.myScore || e.genres.length > 0) && <span className="s">{e.myScore ? <b className="mine-score">{snap.member} {e.myScore}/10</b> : null}{e.myScore && e.genres.length ? ' · ' : ''}{e.genres.slice(0, 3).join(', ')}</span>}
+                  {(e.myScore || e.genres.length > 0) && <span className="s">{e.myScore ? <b className="mine-score">Rated {e.myScore}/10</b> : null}{e.myScore && e.genres.length ? ' · ' : ''}{e.genres.slice(0, 3).join(', ')}</span>}
                 </span>
                 {club
                   ? <button className="tagbtn" onClick={() => onOpenShow(club)}>{CLUB_TAG[club.status]}</button>

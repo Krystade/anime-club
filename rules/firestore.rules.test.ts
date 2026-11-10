@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 const KEY = 'testclubkey_0123456789abcdef';
 let env: RulesTestEnvironment;
@@ -61,4 +61,38 @@ describe('shows', () => {
   it('can bump episodes', () => assertSucceeds(updateDoc(doc(anon(), 'clubs', KEY, 'shows', 's1'), { ep: 3, log: [{ date: '2026-11-09', from: 1, to: 3 }] })));
   it('rejects a negative episode', () => assertFails(updateDoc(doc(anon(), 'clubs', KEY, 'shows', 's1'), { ep: -1 })));
   it('can delete a show', () => assertSucceeds(deleteDoc(doc(anon(), 'clubs', KEY, 'shows', 's1'))));
+});
+
+describe('MyAnimeList lists and the daily limit', () => {
+  const today = () => Math.floor(Date.now() / 86400000);
+  const addList = (user: string, count: number, day = today()) => {
+    const db = anon();
+    const b = writeBatch(db);
+    b.set(doc(db, 'clubs', KEY, 'malLists', user), { addedAt: Date.now(), day });
+    b.set(doc(db, 'clubs', KEY, 'meta', 'malQuota'), { day, count, last: user });
+    return b.commit();
+  };
+  it('adds a list when the quota goes up by one', () => assertSucceeds(addList('someone', 1)));
+  it('refuses a list without bumping the quota', () => assertFails(setDoc(doc(anon(), 'clubs', KEY, 'malLists', 'someone'), { addedAt: 1, day: today() })));
+  it('refuses a quota that skips ahead', () => assertFails(addList('someone', 2)));
+  it('refuses a quota with yesterday as the day', () => assertFails(addList('someone', 1, today() - 1)));
+  it('refuses bad usernames', () => assertFails(addList('no spaces!', 1)));
+  it('refuses re-adding an existing list to reset the count', async () => {
+    await assertSucceeds(addList('someone', 1));
+    await assertFails(addList('someone', 2));
+  });
+  it('stops at 10 a day', async () => {
+    for (let i = 1; i <= 10; i++) await assertSucceeds(addList(`user${i}`, i));
+    await assertFails(addList('user11', 11));
+    await assertFails(addList('user11', 1));
+  });
+  it('starts again the next day', async () => {
+    await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), 'clubs', KEY, 'meta', 'malQuota'), { day: today() - 1, count: 10, last: 'old' }));
+    await assertSucceeds(addList('fresh', 1));
+  });
+  it('lets members remove a list', async () => {
+    await assertSucceeds(addList('someone', 1));
+    await assertSucceeds(deleteDoc(doc(anon(), 'clubs', KEY, 'malLists', 'someone')));
+  });
+  it('cannot list lists in a made-up club', () => assertFails(getDocs(collection(anon(), 'clubs', 'made_up_key_123456789', 'malLists'))));
 });

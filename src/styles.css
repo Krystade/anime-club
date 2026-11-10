@@ -277,3 +277,5 @@ table.vote { width: 100%; border-collapse: collapse; font-variant-numeric: tabul
 .add-to { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 14px 12px 62px; }
 .add-to .muted { font-size: 13px; }
 .link.small { font-size: 14px; margin-left: auto; }
+.limit-alert { background: var(--tint); color: var(--ink); border-radius: 12px; padding: 12px 14px; font-size: 15px; }
+.limit-alert b { color: var(--live); }

@@ -4,16 +4,53 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "17 12 * * *" # daily, ~4am Pacific: refresh MyAnimeList snapshots
+    # Every 10 minutes: pick up MyAnimeList lists added in the app. The check
+    # job exits early (no deploy) unless something changed or the daily refresh is due.
+    - cron: "*/10 * * * *"
 permissions:
   contents: read
   pages: write
   id-token: write
+  issues: write
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      need: ${{ steps.check.outputs.need }}
+      alert: ${{ steps.check.outputs.alert }}
+      added_today: ${{ steps.check.outputs.added_today }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: check
+        run: node scripts/fetch-mal.mjs --check
+        env:
+          CLUB_KEY: ${{ secrets.CLUB_KEY }}
+
+  alert:
+    needs: check
+    if: needs.check.outputs.alert == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open an issue once per day when the daily MAL list limit is reached
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COUNT: ${{ needs.check.outputs.added_today }}
+        run: |
+          title="Anime club: daily MyAnimeList list limit reached ($(date -u +%Y-%m-%d))"
+          if ! gh issue list --state all --search "\"$title\" in:title" --json number --jq '.[0].number' | grep -q .; then
+            gh issue create --title "$title" --body "$COUNT MyAnimeList lists were added to the club today (UTC), which is the daily limit. Further adds are blocked until tomorrow. If the club didn't add these, remove them in the app's MyAnimeList section."
+          fi
+
   build:
+    needs: check
+    if: github.event_name != 'schedule' || needs.check.outputs.need == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +61,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          CLUB_KEY: ${{ secrets.CLUB_KEY }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
