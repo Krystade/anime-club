@@ -24,7 +24,7 @@ export function useMalSnapshot(user: string | null) {
     let live = true;
     // Bust the cache hourly so a fresh daily snapshot shows up without a hard refresh.
     fetch(`./mal/${user.toLowerCase()}.json?h=${Math.floor(Date.now() / 3_600_000)}`)
-      .then((r) => (r.ok ? r.json() : r.status === 404 ? 'pending' : Promise.reject(new Error(String(r.status)))))
+      .then((r) => (r.ok ? r.json() : 'pending'))
       .then((d: MalSnapshot | 'pending') => { if (live) setSnap(d); })
       .catch(() => { if (live) setSnap('error'); });
     return () => { live = false; };
