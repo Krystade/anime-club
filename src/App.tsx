@@ -23,7 +23,7 @@ import {
   onSnapshot, updateDoc,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { searchAnime } from './jikan';
+import { searchAnime } from './anilist';
 import {
   DAYS, bump, clubAverage, formatDay, formatLog, formatTime, localISODate,
   malUrl, nextSession,
@@ -456,11 +456,11 @@ function AddSheet({ target, shows, onAdd, onClose }: { target: AddTarget; shows:
   const term = q.trim();
   return (
     <Sheet title={{ rec: 'Recommend a show', queue: 'Add to queue', sampled: 'Add to Sampled' }[target]} onClose={onClose}
-      head={<input ref={input} id="search" className="field" type="search" placeholder="Search MyAnimeList" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} />}>
+      head={<input ref={input} id="search" className="field" type="search" placeholder="Search anime" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} />}>
       <div className="grp">
         {state.status === 'idle' && <Empty>Type a title.</Empty>}
         {state.status === 'loading' && !state.results.length && <Empty>Searching…</Empty>}
-        {state.status === 'error' && <Empty>MyAnimeList search isn't responding. You can still add it by title.</Empty>}
+        {state.status === 'error' && <Empty>Search isn't responding. You can still add it by title.</Empty>}
         {state.status === 'done' && !state.results.length && <Empty>No matches.</Empty>}
         {state.results.map((r) => {
           const st = r.malId != null ? have.get(r.malId) : undefined;
