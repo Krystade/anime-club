@@ -1,4 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+
+// One colour per member, by join order. Used on avatars, hearts and score chips.
+const MEMBER_COLORS = ['#4F7DF0', '#EF6F55', '#2FA36F', '#9A63EC', '#E09A22', '#1FA2B4', '#D9467A', '#7C8794'];
+const Members = createContext<string[]>([]);
+function useColor() {
+  const members = useContext(Members);
+  return (n: string) => MEMBER_COLORS[Math.max(0, members.indexOf(n)) % MEMBER_COLORS.length];
+}
+function Av({ name, size = 22 }: { name: string; size?: number }) {
+  const color = useColor()(name);
+  return <span className="av" style={{ background: color, width: size, height: size, fontSize: size * 0.48 }} aria-hidden="true">{[...name][0]?.toUpperCase()}</span>;
+}
+function Heart({ filled, color }: { filled: boolean; color: string }) {
+  return <svg width="18" height="16" viewBox="0 0 18 16" aria-hidden="true"><path d="M9 15s-7-4.3-7-9.2A3.8 3.8 0 0 1 9 3.6a3.8 3.8 0 0 1 7 2.2C16 10.7 9 15 9 15Z" fill={filled ? color : 'none'} stroke={filled ? color : 'currentColor'} strokeWidth="1.6" strokeLinejoin="round" /></svg>;
+}
+function EpDots({ ep, eps }: { ep: number; eps: number }) {
+  if (eps > 60) return null;
+  return <span className="dots" aria-hidden="true">{Array.from({ length: eps }, (_, i) => <i key={i} className={i < ep ? 'on' : ''} />)}</span>;
+}
 import {
   addDoc, arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, FieldPath,
   onSnapshot, updateDoc,
@@ -126,11 +145,12 @@ function ClubView({ clubKey }: { clubKey: string }) {
   const current = sheet?.kind === 'show' ? shows.find((s) => s.id === sheet.id) : undefined;
 
   return (
+    <Members.Provider value={club.members}>
     <div className="page">
       <div className="top">
         <h1 className="h1">{club.name}</h1>
         <div className="top-r">
-          <button className="link" onClick={() => setSheet({ kind: 'name' })}>{me ?? 'Pick your name'}</button>
+          <button className="me-btn" onClick={() => setSheet({ kind: 'name' })}>{me && <Av name={me} />}<span>{me ?? 'Pick your name'}</span></button>
           <button className="icon" onClick={() => setSheet({ kind: 'settings' })} aria-label="Club settings">{Ico.gear}</button>
         </div>
       </div>
@@ -143,13 +163,13 @@ function ClubView({ clubKey }: { clubKey: string }) {
         </div>
         {watching.map((s) => <OnRow key={s.id} s={s} a={a} onOpen={() => open(s)} />)}
         {!watching.length && (queue[0]
-          ? <div className="on"><Thumb s={queue[0]} /><button className="on-t" onClick={() => open(queue[0])}><span className="t">{queue[0].title}</span><span className="s">Up next in the queue</span></button>
+          ? <div className="on"><Thumb s={queue[0]} size="hero" /><button className="on-t" onClick={() => open(queue[0])}><span className="t">{queue[0].title}</span><span className="s">Up next in the queue</span></button>
               <button className="btn" onClick={() => a.move(queue[0], 'watching', `Now watching ${queue[0].title}`)}>Start</button></div>
           : <div className="on empty-on"><span className="muted">Nothing on. Add a show to the queue.</span></div>)}
       </section>
 
       <Section title="Sampled" note="Tried an episode, not decided yet. Vote to keep watching.">
-        {sampled.length ? <VoteGrid shows={sampled} members={club.members} me={name} a={a} onOpen={open} /> : <Empty>Nothing sampled right now.</Empty>}
+        {sampled.length ? <VoteGrid shows={sampled} members={club.members} me={name} a={a} onOpen={open} /> : <Empty>Nothing sampled. Try an episode of something from the queue.</Empty>}
       </Section>
       {sampled.length > 0 && sampled[0].votes.length > 0 && (
         <div className="winner"><span>Most votes: <b>{sampled[0].title}</b></span>
@@ -168,7 +188,7 @@ function ClubView({ clubKey }: { clubKey: string }) {
       </Section>
 
       <Section title="Dropped" count={dropped.length || undefined}>
-        {dropped.length ? dropped.map((s) => <Row key={s.id} s={s} onOpen={() => open(s)} right={<span className="warn">at ep {s.ep}</span>} />) : <Empty>Nothing dropped yet.</Empty>}
+        {dropped.length ? dropped.map((s) => <Row key={s.id} s={s} onOpen={() => open(s)} right={<span className="warn">at ep {s.ep}</span>} />) : <Empty>Nothing dropped. Everyone's still friends.</Empty>}
       </Section>
 
       <Section title="Recommendations" action={<button className="link" onClick={() => setSheet({ kind: 'add', target: 'rec' })}>Add</button>}
@@ -188,6 +208,7 @@ function ClubView({ clubKey }: { clubKey: string }) {
         onSave={(c) => save(updateDoc(clubRef, c), 'Saved')} onClose={() => setSheet(null)} toast={toast.show} />}
       {toast.msg && <div className="toast" role="status">{toast.msg}</div>}
     </div>
+    </Members.Provider>
   );
 }
 
@@ -214,7 +235,7 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
-function Thumb({ s, size = 'md' }: { s: { title: string; image: string | null }; size?: 'sm' | 'md' | 'lg' }) {
+function Thumb({ s, size = 'md' }: { s: { title: string; image: string | null }; size?: 'sm' | 'md' | 'lg' | 'hero' }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className={`thumb ${size}`} aria-hidden="true">
@@ -249,10 +270,11 @@ function OnRow({ s, a, onOpen }: { s: Show; a: Actions; onOpen: () => void }) {
   const finished = s.eps != null && s.ep >= s.eps;
   return (
     <div className="on">
-      <Thumb s={s} />
+      <Thumb s={s} size="hero" />
       <button className="on-t" onClick={onOpen}>
         <span className="t">{s.title}</span>
         <span className="s">{s.eps != null ? `${s.ep} of ${s.eps}` : `${s.ep} watched`}{last ? ` · last ${formatLog(last)}` : ''}</span>
+        {s.eps != null && <EpDots ep={s.ep} eps={s.eps} />}
       </button>
       {finished
         ? <button className="btn primary" onClick={() => a.move(s, 'done', `Finished ${s.title}. Add your score.`)}>Finish</button>
@@ -262,17 +284,18 @@ function OnRow({ s, a, onOpen }: { s: Show; a: Actions; onOpen: () => void }) {
 }
 
 function VoteGrid({ shows, members, me, a, onOpen }: { shows: Show[]; members: string[]; me: string; a: Actions; onOpen: (s: Show) => void }) {
+  const colorOf = useColor();
   return (
     <div className="vote-wrap">
       <table className="vote">
-        <thead><tr><th scope="col">Show</th>{members.map((m) => <th key={m} scope="col" className={m === me ? 'me' : ''} title={m}>{[...m][0]}</th>)}<th scope="col">Total</th></tr></thead>
+        <thead><tr><th scope="col">Show</th>{members.map((m) => <th key={m} scope="col" className={m === me ? 'me' : ''} title={m}><Av name={m} size={24} /><span className="sr">{m}</span></th>)}<th scope="col">Total</th></tr></thead>
         <tbody>
           {shows.map((s) => (
             <tr key={s.id}>
               <td><button className="cell-t" onClick={() => onOpen(s)}>{s.title}</button></td>
               {members.map((m) => {
                 const y = s.votes.includes(m);
-                return <td key={m}><button className={`pip ${y ? 'y' : ''}`} disabled={m !== me} onClick={() => a.vote(s)} aria-label={`${m}: ${y ? 'yes' : 'no vote'}`} aria-pressed={y}>{y ? '1' : ''}</button></td>;
+                return <td key={m}><button className={`pip ${y ? 'y' : ''}`} disabled={m !== me} onClick={() => a.vote(s)} aria-label={`${m}: ${y ? 'yes' : 'no vote'}`} aria-pressed={y}><Heart filled={y} color={colorOf(m)} /></button></td>;
               })}
               <td className="tot">{s.votes.length}</td>
             </tr>
@@ -296,7 +319,7 @@ function Recs({ shows, members, me, onOpen }: { shows: Show[]; members: string[]
         return (
           <div key={m} className="person-wrap">
             <button className="person" aria-expanded={isOpen} onClick={() => setOpenFor(isOpen ? null : m)}>
-              <span className="n">{m}{m === me && <span className="muted"> (you)</span>}</span>
+              <span className="n"><Av name={m} size={28} />{m}{m === me && <span className="muted"> (you)</span>}</span>
               <span className="c">{list.length ? `${pending} to watch${list.length > pending ? ` · ${list.length - pending} seen` : ''}` : 'none yet'}</span>
               {Ico.chev}
             </button>
@@ -338,6 +361,7 @@ function Sheet({ title, onClose, children, head, closable = true }: { title: str
       <div className="scrim" onClick={closable ? onClose : undefined} />
       <section className="sheet" role="dialog" aria-modal="true" aria-label={title}>
         <div className="sheet-head">
+          <span className="grabber" aria-hidden="true" />
           <div className="sheet-bar">{closable ? <button className="link" onClick={onClose}>Done</button> : <span />}<h2>{title}</h2><span /></div>
           {head}
         </div>
@@ -389,7 +413,7 @@ function ShowSheet({ s, me, members, a, onClose }: { s: Show; me: string; member
                 {Array.from({ length: 10 }, (_, k) => 10 - k).map((v) => <option key={v} value={v}>{v}</option>)}
               </select></div>
             <div className="d-line"><span>Club</span><span className="num big">{avg == null ? '–' : avg.toFixed(1)}</span></div>
-            <div className="d-scores">{members.map((m) => <span key={m}><span className="muted">{m}</span> <b className="num">{s.scores[m] ?? '–'}</b></span>)}</div>
+            <div className="d-scores">{members.map((m) => <span key={m} className="sc"><Av name={m} size={22} /><b className="num">{s.scores[m] ?? '–'}</b></span>)}</div>
           </div>
         )}
 
@@ -465,7 +489,7 @@ function NameSheet({ club, me, mustPick, onPick, onAddMember, onClose }: {
       <div className="grp">
         {club.members.map((m) => (
           <button key={m} className="row pick" onClick={() => onPick(m)}>
-            <span className="row-m"><span className="t">{m}</span></span>
+            <span className="row-m name-m"><Av name={m} size={30} /><span className="t">{m}</span></span>
             {m === me ? <span className="r ok">You</span> : <span />}
           </button>
         ))}
