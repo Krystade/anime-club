@@ -168,11 +168,14 @@ function ClubView({ clubKey }: { clubKey: string }) {
           <div><small>Meet</small><strong>{formatTime(club.meetTime).replace(/ [AP]M/, '')}</strong></div>
           <div><small>Episode starts</small><strong>{formatTime(startTime).replace(/ [AP]M/, '')}</strong></div>
         </div>
+        <div className="now-h">Now watching</div>
         {watching.map((s) => <OnRow key={s.id} s={s} a={a} onOpen={() => open(s)} />)}
-        {!watching.length && (queue[0]
-          ? <div className="on"><Thumb s={queue[0]} size="hero" /><button className="on-t" onClick={() => open(queue[0])}><span className="t">{queue[0].title}</span><span className="s">Up next in the queue</span></button>
-              <button className="btn" onClick={() => a.move(queue[0], 'watching', `Now watching ${queue[0].title}`)}>Start</button></div>
-          : <div className="on empty-on"><span className="muted">Nothing on. Add a show to the queue.</span></div>)}
+        {!watching.length && (
+          <div className="not-watching">
+            <span className="muted">Not watching anything right now.</span>
+            {queue[0] && <button className="link" onClick={() => a.move(queue[0], 'watching', `Now watching ${queue[0].title}`)}>Start {queue[0].title}</button>}
+          </div>
+        )}
       </section>
 
       <Section title="Sampled" action={<button className="link" onClick={() => setSheet({ kind: 'add', target: 'sampled' })}>Add</button>} note="Tried an episode, not decided yet. Vote to keep watching.">

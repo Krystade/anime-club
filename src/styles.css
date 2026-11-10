@@ -242,3 +242,6 @@ table.vote { width: 100%; border-collapse: collapse; font-variant-numeric: tabul
 .foot-note { font-family: var(--round); }
 @media (prefers-reduced-motion: reduce) { .pip:not(:disabled):active { transform: none; } }
 .rec .tag:empty { display: none; }
+.now-h { padding: 2px 14px 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+.not-watching { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 14px 14px; padding: 12px 14px; border: 1.5px dashed var(--line); border-radius: 12px; font-size: 15px; }
+.not-watching .link { font-size: 15px; font-weight: 600; text-align: left; }
