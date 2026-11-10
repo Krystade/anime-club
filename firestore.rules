@@ -1,0 +1,61 @@
+rules_version = '2';
+
+// Access model (MVP): the club document id is a long random key, and the invite
+// link carries it. Anyone holding the link can read and edit that club. Nobody
+// can list clubs, create one, or delete one from a client; clubs are made by the
+// owner through the admin API.
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function clubExists(k) {
+      return exists(/databases/$(db)/documents/clubs/$(k));
+    }
+    function isInt(v, lo, hi) {
+      return v is int && v >= lo && v <= hi;
+    }
+    function nullOrStr(v, max) {
+      return v == null || (v is string && v.size() <= max);
+    }
+    function nullOrNum(v) {
+      return v == null || v is number;
+    }
+    function validShow(d) {
+      return d.keys().hasAll(['malId', 'title', 'image', 'eps', 'score', 'year', 'type',
+                              'status', 'ep', 'by', 'votes', 'scores', 'log', 'addedAt', 'statusAt'])
+        && d.keys().hasOnly(['malId', 'title', 'image', 'eps', 'score', 'year', 'type',
+                             'status', 'ep', 'by', 'votes', 'scores', 'log', 'addedAt', 'statusAt'])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 200
+        && d.status in ['next', 'watching', 'done', 'drop']
+        && isInt(d.ep, 0, 5000)
+        && (d.eps == null || isInt(d.eps, 0, 5000))
+        && (d.malId == null || isInt(d.malId, 1, 100000000))
+        && nullOrStr(d.image, 500)
+        && nullOrStr(d.type, 30)
+        && nullOrNum(d.score)
+        && nullOrNum(d.year)
+        && d.by is string && d.by.size() <= 40
+        && d.votes is list && d.votes.size() <= 40
+        && d.scores is map && d.scores.size() <= 40
+        && d.log is list && d.log.size() <= 500
+        && d.addedAt is number && d.statusAt is number;
+    }
+    function validClub(d) {
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 60
+        && isInt(d.meetDay, 0, 6)
+        && d.meetTime is string && d.meetTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && d.members is list && d.members.size() <= 40;
+    }
+
+    match /clubs/{k} {
+      allow get: if true;
+      allow list, create, delete: if false;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['name', 'meetDay', 'meetTime', 'members'])
+                    && validClub(request.resource.data);
+
+      match /shows/{id} {
+        allow read, delete: if clubExists(k);
+        allow create, update: if clubExists(k) && validShow(request.resource.data);
+      }
+    }
+  }
+}
