@@ -8,7 +8,7 @@ let env: RulesTestEnvironment;
 
 const show = (over: Record<string, unknown> = {}) => ({
   malId: 52991, title: 'Frieren', image: null, eps: 28, score: 9.3, year: 2023, type: 'TV',
-  status: 'next', ep: 0, by: 'Jack', votes: ['Jack'], scores: {}, log: [], addedAt: 1, statusAt: 1, ...over,
+  status: 'queue', ep: 0, by: 'Jack', recBy: [], votes: ['Jack'], scores: {}, log: [], addedAt: 1, statusAt: 1, ...over,
 });
 
 beforeAll(async () => {
@@ -21,7 +21,7 @@ afterAll(() => env.cleanup());
 beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (c) => {
-    await setDoc(doc(c.firestore(), 'clubs', KEY), { name: 'Club', meetDay: 1, meetTime: '19:00', members: ['Jack'] });
+    await setDoc(doc(c.firestore(), 'clubs', KEY), { name: 'Club', meetDay: 1, meetTime: '19:00', startTime: '19:30', members: ['Jack'] });
     await setDoc(doc(c.firestore(), 'clubs', KEY, 'shows', 's1'), show());
   });
 });
@@ -33,7 +33,9 @@ describe('clubs', () => {
   it('nobody can create a club', () => assertFails(setDoc(doc(anon(), 'clubs', 'another_long_key_123456'), { name: 'x', meetDay: 1, meetTime: '19:00', members: [] })));
   it('nobody can delete a club', () => assertFails(deleteDoc(doc(anon(), 'clubs', KEY))));
   it('can rename and reschedule', () => assertSucceeds(updateDoc(doc(anon(), 'clubs', KEY), { name: 'Monday Club', meetDay: 2, meetTime: '18:30' })));
-  it('rejects a bad time', () => assertFails(updateDoc(doc(anon(), 'clubs', KEY), { meetTime: '25:00' })));
+  it('can change the episode start time', () => assertSucceeds(updateDoc(doc(anon(), 'clubs', KEY), { startTime: '19:45' })));
+  it('rejects a bad start time', () => assertFails(updateDoc(doc(anon(), 'clubs', KEY), { startTime: '7:30pm' })));
+  it('rejects a bad time',() => assertFails(updateDoc(doc(anon(), 'clubs', KEY), { meetTime: '25:00' })));
   it('rejects extra fields', () => assertFails(updateDoc(doc(anon(), 'clubs', KEY), { owner: 'me' })));
 });
 
@@ -42,7 +44,13 @@ describe('shows', () => {
   it('cannot list shows in a club that does not exist', () => assertFails(getDocs(collection(anon(), 'clubs', 'nope_nope_nope_nope', 'shows'))));
   it('can add a valid show', () => assertSucceeds(addDoc(collection(anon(), 'clubs', KEY, 'shows'), show())));
   it('cannot add shows to a made-up club', () => assertFails(addDoc(collection(anon(), 'clubs', 'made_up_key_123456789', 'shows'), show())));
-  it('rejects an unknown status', () => assertFails(addDoc(collection(anon(), 'clubs', KEY, 'shows'), show({ status: 'paused' }))));
+  it('accepts every pipeline status', async () => {
+    for (const status of ['rec', 'queue', 'sampled', 'watching', 'done', 'drop']) {
+      await assertSucceeds(addDoc(collection(anon(), 'clubs', KEY, 'shows'), show({ status, recBy: ['Jack', 'Cameron'] })));
+    }
+  });
+  it('rejects the old "next" status', () => assertFails(addDoc(collection(anon(), 'clubs', KEY, 'shows'), show({ status: 'next' }))));
+  it('rejects an unknown status',() => assertFails(addDoc(collection(anon(), 'clubs', KEY, 'shows'), show({ status: 'paused' }))));
   it('rejects missing fields', () => {
     const { log: _l, ...rest } = show();
     return assertFails(addDoc(collection(anon(), 'clubs', KEY, 'shows'), rest));

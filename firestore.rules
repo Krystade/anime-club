@@ -20,11 +20,11 @@ service cloud.firestore {
     }
     function validShow(d) {
       return d.keys().hasAll(['malId', 'title', 'image', 'eps', 'score', 'year', 'type',
-                              'status', 'ep', 'by', 'votes', 'scores', 'log', 'addedAt', 'statusAt'])
+                              'status', 'ep', 'by', 'recBy', 'votes', 'scores', 'log', 'addedAt', 'statusAt'])
         && d.keys().hasOnly(['malId', 'title', 'image', 'eps', 'score', 'year', 'type',
-                             'status', 'ep', 'by', 'votes', 'scores', 'log', 'addedAt', 'statusAt'])
+                             'status', 'ep', 'by', 'recBy', 'votes', 'scores', 'log', 'addedAt', 'statusAt'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 200
-        && d.status in ['next', 'watching', 'done', 'drop']
+        && d.status in ['rec', 'queue', 'sampled', 'watching', 'done', 'drop']
         && isInt(d.ep, 0, 5000)
         && (d.eps == null || isInt(d.eps, 0, 5000))
         && (d.malId == null || isInt(d.malId, 1, 100000000))
@@ -33,6 +33,7 @@ service cloud.firestore {
         && nullOrNum(d.score)
         && nullOrNum(d.year)
         && d.by is string && d.by.size() <= 40
+        && d.recBy is list && d.recBy.size() <= 40
         && d.votes is list && d.votes.size() <= 40
         && d.scores is map && d.scores.size() <= 40
         && d.log is list && d.log.size() <= 500
@@ -42,6 +43,7 @@ service cloud.firestore {
       return d.name is string && d.name.size() > 0 && d.name.size() <= 60
         && isInt(d.meetDay, 0, 6)
         && d.meetTime is string && d.meetTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && d.startTime is string && d.startTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
         && d.members is list && d.members.size() <= 40;
     }
 
@@ -49,7 +51,7 @@ service cloud.firestore {
       allow get: if true;
       allow list, create, delete: if false;
       allow update: if request.resource.data.diff(resource.data).affectedKeys()
-                         .hasOnly(['name', 'meetDay', 'meetTime', 'members'])
+                         .hasOnly(['name', 'meetDay', 'meetTime', 'startTime', 'members'])
                     && validClub(request.resource.data);
 
       match /shows/{id} {
